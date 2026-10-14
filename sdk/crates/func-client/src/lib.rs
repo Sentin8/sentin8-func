@@ -71,8 +71,7 @@ impl FuncClient {
         cert_path: &str,
         key_path: &str,
     ) -> Result<Self, FuncError> {
-        let mtls =
-            sentin8_middleware::mtls::MtlsConfig::new(ca_cert_path, cert_path, key_path);
+        let mtls = sentin8_middleware::mtls::MtlsConfig::new(ca_cert_path, cert_path, key_path);
         let http = sentin8_middleware::mtls::build_mtls_client(&mtls)
             .map(Sentin8HttpClient::from_client)
             .map_err(|e| FuncError::Http(e.to_string()))?;
@@ -163,7 +162,10 @@ impl FuncClient {
         req: &ExecuteRequest,
     ) -> Result<serde_json::Value, FuncError> {
         let resp = self
-            .with_auth(self.http.post(self.url(&format!("/v1/modules/{id}/execute"))))
+            .with_auth(
+                self.http
+                    .post(self.url(&format!("/v1/modules/{id}/execute"))),
+            )
             .json(req)
             .send()
             .await
@@ -179,7 +181,10 @@ impl FuncClient {
     /// `POST /v1/modules/{id}/validate` — dry-run validation.
     pub async fn validate(&self, id: &str) -> Result<serde_json::Value, FuncError> {
         let resp = self
-            .with_auth(self.http.post(self.url(&format!("/v1/modules/{id}/validate"))))
+            .with_auth(
+                self.http
+                    .post(self.url(&format!("/v1/modules/{id}/validate"))),
+            )
             .send()
             .await
             .map_err(|e| FuncError::Http(e.to_string()))?;
@@ -194,7 +199,10 @@ impl FuncClient {
     /// `POST /v1/modules/{id}/activate` — activate a module version.
     pub async fn activate(&self, id: &str) -> Result<(), FuncError> {
         let resp = self
-            .with_auth(self.http.post(self.url(&format!("/v1/modules/{id}/activate"))))
+            .with_auth(
+                self.http
+                    .post(self.url(&format!("/v1/modules/{id}/activate"))),
+            )
             .send()
             .await
             .map_err(|e| FuncError::Http(e.to_string()))?;

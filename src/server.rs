@@ -55,9 +55,7 @@ pub async fn build_state(
         // loudly) rather than aborting boot — the certificate mint can
         // succeed on the next restart once Acme is up.
         tracing::warn!("func: Storage client falling back to a plain transport (no identity)");
-        sentin8_storage_sdk::client::StorageClient::new_dev_plain(
-            &config.sentin8_storage_url,
-        )
+        sentin8_storage_sdk::client::StorageClient::new_dev_plain(&config.sentin8_storage_url)
     });
 
     // Startup cache warm-up: fetch all active modules from DB, fetch their
@@ -107,14 +105,17 @@ pub async fn build_state(
         // (the map is normally published by enroll BEFORE services
         // start). The load presents THIS service's certificate identity
         // over the Valkey TLS plane (group DESIGN.md §3.1).
-        workload_registry:
-            match sentin8::auth::workload_registry::WorkloadMap::boot_load("sentin8:func").await {
-                Ok(map) => map,
-                Err(e) => {
-                    tracing::warn!(error = %e, "func: workload registry map unavailable at boot — certificate-workload calls fail-closed until next boot");
-                    sentin8::auth::workload_registry::WorkloadMap::boot_load_empty("sentin8:func")
-                }
-            },
+        workload_registry: match sentin8::auth::workload_registry::WorkloadMap::boot_load(
+            "sentin8:func",
+        )
+        .await
+        {
+            Ok(map) => map,
+            Err(e) => {
+                tracing::warn!(error = %e, "func: workload registry map unavailable at boot — certificate-workload calls fail-closed until next boot");
+                sentin8::auth::workload_registry::WorkloadMap::boot_load_empty("sentin8:func")
+            }
+        },
         policy: policy_engine.clone(),
         admin: sentin8::shield::admin::SharedAdminState {
             service: "sentin8:func".to_string(),

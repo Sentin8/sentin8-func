@@ -668,9 +668,7 @@ pub async fn validate(
             .get(&a.env_id().to_string(), &a.env_id().to_string(), key)
             .await
         {
-            Ok(bytes) => state
-                .runtime
-                .validate(&bytes, &module.hooks, None),
+            Ok(bytes) => state.runtime.validate(&bytes, &module.hooks, None),
             Err(e) => Err(format!("Storage fetch failed: {e}")),
         },
         None => Err("no Storage object key for module".to_string()),
@@ -783,8 +781,7 @@ async fn execute_on_module(
     // (module_id, hook, idempotency_key) returns the cached response —
     // at-least-once triggers must not re-run hooks.
     if let Some(key) = req.idempotency_key.as_deref() {
-        if let Some(cached) = execute_dedupe_lookup(&state.pool, a_env, id, &req.hook, key).await?
-        {
+        if let Some(cached) = execute_dedupe_lookup(&state.pool, a_env, id, &req.hook, key).await? {
             return Ok(Json(cached));
         }
     }
