@@ -1,0 +1,10 @@
+{
+  "vertical": "sentin8",
+  "services": [
+    {
+      "service_type": "sentin8:func",
+      "subdomain": "func",
+      "binary": "sentin8-func"
+    }
+  ]
+}
