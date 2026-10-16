@@ -4,7 +4,11 @@
     {
       "service_type": "sentin8:func",
       "subdomain": "func",
-      "binary": "sentin8-func"
+      "binary": "sentin8-func",
+      "telemetry_property": {
+        "slug": "func",
+        "name": "Sentin8:Func Platform Telemetry"
+      }
     }
   ]
 }
