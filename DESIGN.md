@@ -1,4 +1,4 @@
-# DESIGN.md: Sentin8:Func — Detailed Design Document
+# Sentin8:Func — Detailed Design Document
 
 ## 1. Scope & Context
 
