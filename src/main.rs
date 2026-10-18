@@ -21,6 +21,7 @@ mod handlers;
 mod openapi;
 mod policy;
 mod registration;
+mod rfw_aliases;
 #[allow(dead_code)]
 mod runtime;
 #[allow(dead_code)]

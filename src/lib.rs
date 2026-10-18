@@ -21,6 +21,7 @@ pub mod openapi;
 pub mod policy;
 /// Service self-registration declarations.
 pub mod registration;
+pub mod rfw_aliases;
 /// The WASM runtime (wasmtime, gas limits, host functions).
 pub mod runtime;
 /// Axum router and server.

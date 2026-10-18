@@ -908,6 +908,15 @@ async fn execute_dedupe_store(
 // ── Health ───────────────────────────────────────────────────────────────
 
 /// Handle health.
+#[utoipa::path(
+    get,
+    path = "/v1/health",
+    responses(
+        (status = 200, description = "Liveness (version, build, runtime, cache size)", body = serde_json::Value),
+    ),
+    security(),
+    tag = "meta",
+)]
 pub async fn health(State(state): State<AppState>) -> Json<serde_json::Value> {
     let mut payload = serde_json::json!({
         "status": "ok",

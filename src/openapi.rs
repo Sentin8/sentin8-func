@@ -18,6 +18,21 @@ use crate::store;
 #[derive(OpenApi)]
 #[openapi(
     paths(
+        sentin8::shell::policy_check_relation,
+        sentin8::shell::policy_delete_attribute,
+        sentin8::shell::policy_delete_relation,
+        sentin8::shell::policy_delete_set,
+        sentin8::shell::policy_get_set,
+        sentin8::shell::policy_list_attributes,
+        sentin8::shell::policy_list_relations,
+        sentin8::shell::policy_list_sets,
+        sentin8::shell::policy_mode_disable,
+        sentin8::shell::policy_mode_enforce,
+        sentin8::shell::policy_mode_shadow,
+        sentin8::shell::policy_put_attribute,
+        sentin8::shell::policy_put_relation,
+        sentin8::shell::policy_put_set,
+        sentin8::shell::policy_test_set,
         handlers::upload,
         handlers::list,
         handlers::get,
@@ -26,6 +41,11 @@ use crate::store;
         handlers::activate,
         handlers::validate,
         handlers::execute,
+        handlers::execute_product,
+        crate::rfw_aliases::module_delete,
+        handlers::health,
+        crate::admin_ui::get_admin_ui,
+        crate::admin_ui::get_admin_data,
     ),
     components(schemas(
         handlers::UploadRequest,
@@ -37,7 +57,7 @@ use crate::store;
     )),
     security(),
     tags(
+        (name = "policy", description = "Shield policy administration (shared surface)"),
         (name = "func", description = "Sentin8:Func admin API — WASM module management + execution"),
     ),
-)]
-pub struct FuncOpenApi;
+)]pub struct FuncOpenApi;
