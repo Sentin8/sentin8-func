@@ -3,18 +3,18 @@
 -- SPDX-FileCopyrightText: Copyright Contributors to the Sentin8:Func
 -- SPDX-License-Identifier: Apache-2.0
 
--- Sentin8:Func — WASM module registry.
+-- Sentin8:Func - WASM module registry.
 -- Sentin8:Func is the generic, standalone WASM execution service. Any service
 -- (Bank8:Ledger, Bank8:Payments, Sentin8:App, Bank8:FDX, …) uses it through the generic `func.modules`
--- table — Sentin8:Func owns no service-specific tables.
+-- table - Sentin8:Func owns no service-specific tables.
 --
 -- This file contains:
 --   * func.modules
 -- The Bank8:Ledger-owned bank8_ledger_product_versions (WASM binary metadata for Bank8:Ledger
 -- product versions) and bank8_ledger_account_flags (set_flag directive) live in
--- the Bank8:Ledger SQL — they are Bank8:Ledger concepts, not Sentin8:Func concepts.
+-- the Bank8:Ledger SQL - they are Bank8:Ledger concepts, not Sentin8:Func concepts.
 
--- Sentin8:Func standalone module registry — WASM module metadata.
+-- Sentin8:Func standalone module registry - WASM module metadata.
 -- WASM binaries themselves are stored in Sentin8:Storage (object storage); this table
 -- holds the hash, size, language, hooks, parameters, and status.
 CREATE SCHEMA IF NOT EXISTS func;
@@ -170,7 +170,7 @@ CREATE POLICY execute_dedupe_dml ON func.execute_dedupe
 GRANT SELECT, INSERT, UPDATE, DELETE ON func.execute_dedupe TO sentin8_func_service;
 
 
--- ── Schema grants (service-owned — the 2026-10-03 ownership pass) ─────
+-- ── Schema grants (service-owned - the 2026-10-03 ownership pass) ─────
 -- This service's own schema: USAGE for its role (platform.sql no longer
 -- seeds per-service USAGE; the service declares it here).
 GRANT USAGE ON SCHEMA func TO sentin8_func_service;

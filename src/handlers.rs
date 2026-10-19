@@ -3,7 +3,7 @@
 // SPDX-FileCopyrightText: Copyright Contributors to the Sentin8:Func
 // SPDX-License-Identifier: Apache-2.0
 
-//! Func HTTP handlers — module management + execution API.
+//! Func HTTP handlers - module management + execution API.
 //!
 //! Conventions:
 //!
@@ -12,7 +12,7 @@
 //!   `set_config`).
 //! - Domain events are written to the LOCAL `func.outbox` in the same
 //!   transaction as the domain change; the shell's shared relay pushes them
-//!   to Bus `POST /v1/produce` (principles §6.7 — see also `crates/shell`
+//!   to Bus `POST /v1/produce` (principles §6.7 - see also `crates/shell`
 //!   step 8b).
 //! - Uploads are atomic: the Storage object (keyed by module id) is written
 //!   before the metadata row; a failed metadata insert triggers a best-effort
@@ -44,14 +44,14 @@ pub struct AppState {
     pub runtime: WasmRuntime,
     /// The storage.
     pub storage: sentin8_storage_sdk::client::StorageClient,
-    /// The boot-loaded workload registry map — the authorization record
+    /// The boot-loaded workload registry map - the authorization record
     /// for cert-presenting callers (auth DESIGN §4.3f; group DESIGN.md
     /// §3.1).
     pub workload_registry: sentin8::auth::workload_registry::WorkloadMap,
-    /// Shield engine ( — ): additional gate after scope.
+    /// Shield engine ( - ): additional gate after scope.
     /// The policy.
     pub policy: Arc<crate::policy::Engine>,
-    /// Shared Sentin8:Policy admin surface ( — one
+    /// Shared Sentin8:Policy admin surface ( - one
     /// implementation for every service; mounted in server::routes).
     /// The admin.
     pub admin: sentin8::shield::admin::SharedAdminState,
@@ -89,7 +89,7 @@ pub struct UploadRequest {
 }
 
 /// Resolve the tenant for a request. `target_env_id` (when supplied) must be
-/// a valid UUID — cross-env authorization is delegated to RLS (a caller
+/// a valid UUID - cross-env authorization is delegated to RLS (a caller
 /// without a role in the target env sees 0 rows / gets denied on writes by
 /// the INSERT policy). No silent fallback: a malformed target env is a 400.
 fn resolve_env(
@@ -152,10 +152,10 @@ fn gate_closed() -> (StatusCode, String) {
 
 /// Emit a domain event inside the domain transaction (outbox-first §6.7).
 /// Writes the LOCAL `func.outbox` (func DESIGN §4) in the SAME transaction
-/// as the domain change — event and domain row commit together or not at
+/// as the domain change - event and domain row commit together or not at
 /// all; the shell's shared relay then pushes the row to Bus
 /// `POST /v1/produce` (crates/shell step 8b). Failure aborts the
-/// transaction — a domain change whose event was never persisted rolls
+/// transaction - a domain change whose event was never persisted rolls
 /// back, so consumers never see an unannounced change.
 async fn emit_event_tx(
     tx: &mut sqlx::PgConnection,
@@ -166,7 +166,7 @@ async fn emit_event_tx(
     if let Err(e) =
         sentin8::bus::outbox::insert_outbox_row(tx, env_id, "func", event_type, payload).await
     {
-        tracing::error!(error = %e, event_type = %event_type, "func: outbox event insert failed — rolling back domain change");
+        tracing::error!(error = %e, event_type = %event_type, "func: outbox event insert failed - rolling back domain change");
     }
 }
 
@@ -197,7 +197,7 @@ async fn audit_event(pool: &sqlx::PgPool, env_id: Uuid, action: &str, event: ser
     let _ = tx.commit().await;
 }
 
-/// `POST /v1/modules` — upload a new WASM module.
+/// `POST /v1/modules` - upload a new WASM module.
 #[utoipa::path(
     post,
     operation_id = "module.upload",
@@ -264,7 +264,7 @@ pub async fn upload(
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
 
     // Content-addressed versioning (func DESIGN §3): the same binary for the
-    // same (env, domain, product) re-registers the EXISTING version — no
+    // same (env, domain, product) re-registers the EXISTING version - no
     // duplicate content rows, no second Storage object. The caller learns
     // the existing version instead of receiving a conflict.
     if let Some(existing) =
@@ -451,7 +451,7 @@ pub async fn get(
     Ok(Json(module))
 }
 
-/// `GET /v1/modules/{id}/wasm` — download the raw WASM binary from Storage.
+/// `GET /v1/modules/{id}/wasm` - download the raw WASM binary from Storage.
 #[utoipa::path(
     get,
     operation_id = "module.download",
@@ -636,7 +636,7 @@ pub struct ValidateResponse {
     pub exports: Vec<String>,
 }
 
-/// `POST /v1/modules/{id}/validate` — re-validate the stored binary.
+/// `POST /v1/modules/{id}/validate` - re-validate the stored binary.
 #[utoipa::path(
     post,
     operation_id = "module.validate",
@@ -729,7 +729,7 @@ pub async fn execute(
     execute_on_module(state, a.env_id(), module, req).await
 }
 
-/// `POST /v1/modules/product/{product_id}/execute` — execute a hook on the
+/// `POST /v1/modules/product/{product_id}/execute` - execute a hook on the
 /// product's currently-ACTIVE version (the `latest` pointer; func DESIGN
 /// §4). The pinned-by-id route is the exact-version surface; this is the
 /// convenience route for callers that track products, not versions.
@@ -778,7 +778,7 @@ async fn execute_on_module(
     let id = module.id;
     let a_env = env_id;
     // Idempotency (func DESIGN §6): a replayed execution with the same
-    // (module_id, hook, idempotency_key) returns the cached response —
+    // (module_id, hook, idempotency_key) returns the cached response -
     // at-least-once triggers must not re-run hooks.
     if let Some(key) = req.idempotency_key.as_deref() {
         if let Some(cached) = execute_dedupe_lookup(&state.pool, a_env, id, &req.hook, key).await? {
@@ -828,7 +828,7 @@ async fn execute_on_module(
 }
 
 /// FUNC-5 (func DESIGN §6): emit the execution's `duration_ms` and
-/// `fuel_used` as Stat metrics (family `func`, event `func.execute`) —
+/// `fuel_used` as Stat metrics (family `func`, event `func.execute`) -
 /// the same values the response carries, so dashboards can chart WASM
 /// execution cost. Fire-and-forget; the emitter is initialized by the
 /// shell boot (`boot_full`) and a disabled emitter is a no-op.
@@ -873,7 +873,7 @@ async fn execute_dedupe_lookup(
     Ok(row.and_then(|(v,)| serde_json::from_value(v).ok()))
 }
 
-/// Store an execute response under the idempotency key. Best-effort —
+/// Store an execute response under the idempotency key. Best-effort -
 /// a store failure never fails the original execution.
 async fn execute_dedupe_store(
     pool: &sqlx::PgPool,

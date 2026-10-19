@@ -14,7 +14,7 @@
 //! - The host serializes the `ExecuteRequest.context` to JSON, allocates
 //!   module memory through the module-imported `malloc`, writes the bytes,
 //!   calls the hook, reads the response JSON from the returned pointer
-//!   (JSON-delimiter scan — see `read_response_json`), and frees both
+//!   (JSON-delimiter scan - see `read_response_json`), and frees both
 //!   buffers via `free`.
 //! - Built-in host functions (`log`, `util_*`, `malloc`, `free`) are
 //!   computed locally; any other import is registered dynamically from the
@@ -108,7 +108,7 @@ impl ModuleCache {
 /// `host_functions` maps each WASM-imported host-function name to the path
 /// template on the calling service's internal API (e.g.
 /// `ledger_get_balance` → `/accounts/{args.0}/balance`). Func resolves these
-/// dynamically at execute time — it does **not** pre-register any
+/// dynamically at execute time - it does **not** pre-register any
 /// service-specific host functions.
 #[derive(Debug, Clone, Deserialize, Serialize, Default, ToSchema)]
 /// Configuration for callback.
@@ -135,7 +135,7 @@ pub struct ExecuteRequest {
     #[serde(default)]
     /// The callback config.
     pub callback_config: Option<CallbackConfig>,
-    /// Optional idempotency key (principles §4.14 — every trigger
+    /// Optional idempotency key (principles §4.14 - every trigger
     /// dedupes on the event's key): a replayed execution with the same
     /// key returns the cached response instead of re-running the hook.
     #[serde(default)]
@@ -306,7 +306,7 @@ impl WasmRuntime {
     }
 
     /// Validate a WASM binary: parse, reject WASI imports, verify declared
-    /// hooks are exported, and — when a `host_functions` map is available —
+    /// hooks are exported, and - when a `host_functions` map is available -
     /// verify every non-built-in import is covered by the map.
     /// Validate it.
     pub fn validate(
@@ -386,7 +386,7 @@ impl WasmRuntime {
         // the module reads the buffer via the (ptr, len) hook arguments.
         let request_json =
             serde_json::to_vec(&req.context).map_err(|e| format!("serialize context: {e}"))?;
-        // Verify the hook export signature first — a missing hook is a
+        // Verify the hook export signature first - a missing hook is a
         // caller error, not a sandbox error, and must not be masked by the
         // memory check.
         if instance.get_export(&mut store, &req.hook).is_none() {
@@ -637,7 +637,7 @@ fn register_builtins_into(linker: &mut Linker<HostState>) {
 
 /// Bump allocator over module linear memory: hands out sequential regions
 /// anchored 1 MiB into linear memory (module heap data lives below that in
-/// practice). Each allocation is 16-byte aligned. State is process-global —
+/// practice). Each allocation is 16-byte aligned. State is process-global -
 /// acceptable because each invocation uses a fresh Store and allocations are
 /// bounded (request buffer + module response buffer + proxy-back results).
 fn bump_malloc(size: i32) -> i32 {
@@ -861,7 +861,7 @@ fn urlencode_path(s: &str) -> String {
     out
 }
 
-/// Background task ticking wasmtime epochs — powers the wall-clock deadline.
+/// Background task ticking wasmtime epochs - powers the wall-clock deadline.
 fn start_epoch_ticker(engine: Engine, timeout_ms: u64) {
     tokio::spawn(async move {
         // Tick ~10x per timeout period so interruption granularity is tight.
@@ -892,7 +892,7 @@ mod tests {
 
     /// A trivial valid WASM module (empty, no imports/exports).
     fn mk_module(rt: &WasmRuntime) -> Module {
-        // (module) — the smallest valid binary.
+        // (module) - the smallest valid binary.
         let bytes: &[u8] = &[0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
         Module::from_binary(&rt.engine, bytes).unwrap()
     }

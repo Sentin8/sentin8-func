@@ -7,7 +7,7 @@
 //!
 //! Every operation runs inside an explicit transaction with the tenant
 //! context set on the SAME transaction connection: `sentin8_set_tenant_context`
-//! uses `set_config(..., true)` which is transaction-local — setting it on a
+//! uses `set_config(..., true)` which is transaction-local - setting it on a
 //! pooled autocommit connection evaporates before the next statement,
 //! silently disabling RLS under the per-service NOBYPASSRLS role.
 
@@ -56,7 +56,7 @@ fn err_db(e: sqlx::Error) -> (axum::http::StatusCode, String) {
 }
 
 /// Set the tenant context on a transaction connection. MUST be called after
-/// `pool.begin` and before any statement on that connection — the context
+/// `pool.begin` and before any statement on that connection - the context
 /// is transaction-local (`set_config(..., true)`).
 async fn set_rls(
     conn: &mut sqlx::PgConnection,
@@ -150,7 +150,7 @@ pub async fn list_modules(
 
 /// Resolve a module for EXECUTION by reference. `reference` is either a
 /// module UUID (a pinned version) or a `product_id` (resolves the
-/// currently-active version of that product — the `latest` pointer; the
+/// currently-active version of that product - the `latest` pointer; the
 /// active-status unique index guarantees at most one match). Execution
 /// callers address modules either way (func DESIGN §4).
 pub async fn resolve_module(
@@ -326,7 +326,7 @@ fn row_to_module(r: sqlx::postgres::PgRow) -> ModuleRecord {
     }
 }
 
-/// List all active modules across all orgs/envs — used for startup cache warm-up.
+/// List all active modules across all orgs/envs - used for startup cache warm-up.
 /// Bypasses RLS (runs as platform role).
 /// List all active modules.
 pub async fn list_all_active_modules(

@@ -34,7 +34,7 @@ pub struct FuncConfig {
     /// Max module cache size.
     /// The cache max modules.
     pub cache_max_modules: usize,
-    /// Shared Auth client — constructed once so the discovery and JWKS
+    /// Shared Auth client - constructed once so the discovery and JWKS
     /// caches are reused across every request (5-minute TTL each).
     /// Cloning is cheap (the caches live behind an `Arc`).
     /// The auth client.

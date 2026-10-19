@@ -24,9 +24,9 @@ pub async fn build_state(
         config.cache_max_modules,
     )?;
 
-    // Storage client — CERT-PRESENTING (auth DESIGN §4.3f):
+    // Storage client - CERT-PRESENTING (auth DESIGN §4.3f):
     // ensure the `func-storage` workload CERTIFICATE (load-or-mint from
-    // Acme — the certificate IS the identity; no DCR, no token) and build
+    // Acme - the certificate IS the identity; no DCR, no token) and build
     // the cert-presenting client. Storage's TLS layer authenticates the
     // handshake; the registry map authorizes the scopes.
     let ca_cert_path = sentin8::auth::m2m::platform_ca_path();
@@ -52,7 +52,7 @@ pub async fn build_state(
     .ok()
     .unwrap_or_else(|| {
         // Fail-soft dev fallback: a plain transport (Storage rejects it
-        // loudly) rather than aborting boot — the certificate mint can
+        // loudly) rather than aborting boot - the certificate mint can
         // succeed on the next restart once Acme is up.
         tracing::warn!("func: Storage client falling back to a plain transport (no identity)");
         sentin8_storage_sdk::client::StorageClient::new_dev_plain(&config.sentin8_storage_url)
@@ -87,8 +87,8 @@ pub async fn build_state(
         Err(e) => tracing::warn!(error = %e.1, "failed to list active modules for warm-up"),
     }
 
-    // ── Sentin8:Policy (— shell-owned boot): consume the
-    // engine the shell booted in step 8 — no second engine, consumer, or
+    // ── Sentin8:Policy (- shell-owned boot): consume the
+    // engine the shell booted in step 8 - no second engine, consumer, or
     // DCR registration here.
     let policy_engine = core.admin.policy.clone();
 
@@ -99,7 +99,7 @@ pub async fn build_state(
         storage,
         // auth DESIGN §4.3f: boot-load the workload registry map (the
         // token-free authorization record) for the cert-first handler
-        // gate. Fail-open-with-warning on an unreachable Valkey at boot —
+        // gate. Fail-open-with-warning on an unreachable Valkey at boot -
         // the bearer path (user/delegated) serves while
         // certificate-workload calls fail-closed until the next boot
         // (the map is normally published by enroll BEFORE services
@@ -112,7 +112,7 @@ pub async fn build_state(
         {
             Ok(map) => map,
             Err(e) => {
-                tracing::warn!(error = %e, "func: workload registry map unavailable at boot — certificate-workload calls fail-closed until next boot");
+                tracing::warn!(error = %e, "func: workload registry map unavailable at boot - certificate-workload calls fail-closed until next boot");
                 sentin8::auth::workload_registry::WorkloadMap::boot_load_empty("sentin8:func")
             }
         },
@@ -131,7 +131,7 @@ pub async fn build_state(
 /// Add this service's routes onto the shell-provided router. The shell
 /// owns the boot sequence, state binding, OpenAPI merge and the standard
 /// middleware stack; this adds ONLY routes (including the service's own
-/// `/v1/health` — custom payload).
+/// `/v1/health` - custom payload).
 /// Handle routes.
 pub fn routes(
     router: axum::Router<crate::handlers::AppState>,
@@ -156,8 +156,8 @@ pub fn routes(
             "/v1/modules/product/{product_id}/execute",
             post(handlers::execute_product),
         )
-        // Traffic counter — counts every inbound request (excludes health checks).
-        // ── Sentin8:Policy admin API ( — shared implementation,
+        // Traffic counter - counts every inbound request (excludes health checks).
+        // ── Sentin8:Policy admin API ( - shared implementation,
         // one surface per service; handlers are generic over this AppState).
         .route(
             "/v1/admin/policy-sets",
@@ -203,7 +203,7 @@ pub fn routes(
         )
 }
 
-/// Shared policy-admin surface accessor — the shared
+/// Shared policy-admin surface accessor - the shared
 /// handlers extract this service's admin state via [`HasPolicyAdmin`].
 impl sentin8::shield::admin::HasPolicyAdmin for AppState {
     fn policy_admin(&self) -> &sentin8::shield::admin::SharedAdminState {

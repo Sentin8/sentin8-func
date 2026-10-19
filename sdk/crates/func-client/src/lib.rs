@@ -28,14 +28,14 @@ pub enum FuncError {
 /// The Func client. Cheap to clone (wraps an `Arc`).
 ///
 /// Two authentication postures (auth DESIGN §4.3f): the certificate path
-/// (`with_workload_identity` — the TLS handshake presents the workload's
+/// (`with_workload_identity` - the TLS handshake presents the workload's
 /// Acme-issued pair; no bearer header exists on the wire) for
-/// service-to-service callers, and the bearer path (`new` — a user or
+/// service-to-service callers, and the bearer path (`new` - a user or
 /// delegated token) for interactive flows.
 #[derive(Clone)]
 pub struct FuncClient {
     base_url: String,
-    /// `None` on the certificate path — the TLS handshake IS the
+    /// `None` on the certificate path - the TLS handshake IS the
     /// authentication; no bearer header is attached.
     auth_token: Option<Arc<String>>,
     http: Sentin8HttpClient,
@@ -43,7 +43,7 @@ pub struct FuncClient {
 
 impl FuncClient {
     /// Construct a bearer-authenticated client (user/delegated token
-    /// flows — the token rides the `Authorization` header).
+    /// flows - the token rides the `Authorization` header).
     ///
     /// - `base_url`: Func server URL.
     /// - `auth_token`: bearer token (scope `sentin8:func:write`).
@@ -57,13 +57,13 @@ impl FuncClient {
 
     /// Construct a **certificate-presenting** client (auth DESIGN
     /// §4.3f): every call presents the workload's Acme-issued client
-    /// certificate in the TLS handshake — Func's TLS layer authenticates
+    /// certificate in the TLS handshake - Func's TLS layer authenticates
     /// it and the enroll-published registry map authorizes the scopes.
     /// No bearer token exists on this path.
     ///
     /// # Errors
     /// [`FuncError::Http`] when the mTLS transport cannot be built
-    /// (missing files / unreadable key) — a missing certificate identity
+    /// (missing files / unreadable key) - a missing certificate identity
     /// is a provisioning state, surfaced loud.
     pub fn with_workload_identity(
         base_url: impl Into<String>,
@@ -87,7 +87,7 @@ impl FuncClient {
     }
 
     /// Attach the bearer header when the client carries a token (the
-    /// certificate path attaches none — the TLS handshake is the
+    /// certificate path attaches none - the TLS handshake is the
     /// authentication).
     fn with_auth(&self, req: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
         match &self.auth_token {
@@ -96,7 +96,7 @@ impl FuncClient {
         }
     }
 
-    /// `POST /v1/modules` — upload a new WASM module.
+    /// `POST /v1/modules` - upload a new WASM module.
     pub async fn upload(&self, req: &UploadRequest) -> Result<serde_json::Value, FuncError> {
         let resp = self
             .with_auth(self.http.post(self.url("/v1/modules")))
@@ -112,7 +112,7 @@ impl FuncClient {
             .map_err(|e| FuncError::Decode(e.to_string()))
     }
 
-    /// `GET /v1/modules` — list modules, optionally filtered.
+    /// `GET /v1/modules` - list modules, optionally filtered.
     pub async fn list_modules(
         &self,
         domain: Option<&str>,
@@ -140,7 +140,7 @@ impl FuncClient {
             .map_err(|e| FuncError::Decode(e.to_string()))
     }
 
-    /// `GET /v1/modules/{id}` — get module metadata.
+    /// `GET /v1/modules/{id}` - get module metadata.
     pub async fn get_module(&self, id: &str) -> Result<serde_json::Value, FuncError> {
         let resp = self
             .with_auth(self.http.get(self.url(&format!("/v1/modules/{id}"))))
@@ -155,7 +155,7 @@ impl FuncClient {
             .map_err(|e| FuncError::Decode(e.to_string()))
     }
 
-    /// `POST /v1/modules/{id}/execute` — execute a hook.
+    /// `POST /v1/modules/{id}/execute` - execute a hook.
     pub async fn execute(
         &self,
         id: &str,
@@ -178,7 +178,7 @@ impl FuncClient {
             .map_err(|e| FuncError::Decode(e.to_string()))
     }
 
-    /// `POST /v1/modules/{id}/validate` — dry-run validation.
+    /// `POST /v1/modules/{id}/validate` - dry-run validation.
     pub async fn validate(&self, id: &str) -> Result<serde_json::Value, FuncError> {
         let resp = self
             .with_auth(
@@ -196,7 +196,7 @@ impl FuncClient {
             .map_err(|e| FuncError::Decode(e.to_string()))
     }
 
-    /// `POST /v1/modules/{id}/activate` — activate a module version.
+    /// `POST /v1/modules/{id}/activate` - activate a module version.
     pub async fn activate(&self, id: &str) -> Result<(), FuncError> {
         let resp = self
             .with_auth(
@@ -212,7 +212,7 @@ impl FuncClient {
         Ok(())
     }
 
-    /// `DELETE /v1/modules/{id}` — delete a module (draft or deprecated only).
+    /// `DELETE /v1/modules/{id}` - delete a module (draft or deprecated only).
     pub async fn delete(&self, id: &str) -> Result<(), FuncError> {
         let resp = self
             .with_auth(self.http.delete(self.url(&format!("/v1/modules/{id}"))))

@@ -106,7 +106,7 @@ fn build_module_with_locals(imports: &[(&str, &str)], body: &[u8]) -> Vec<u8> {
 
 /// Push a signed LEB128 i32 (i32.const immediate).
 fn push_sleb(out: &mut Vec<u8>, v: i32) {
-    out.push(0x41); // i32.const — every call site is a constant push
+    out.push(0x41); // i32.const - every call site is a constant push
     let mut n = v;
     loop {
         let mut b = (n & 0x7f) as u8;
@@ -129,7 +129,7 @@ fn body_accept() -> Vec<u8> {
     push_sleb(&mut code, json.len() as i32);
     code.push(0x10); // call
     code.push(0x00); // malloc (import 0)
-    code.extend_from_slice(&[0x21, 0x00]); // local.set 0 — drop ptr from stack
+    code.extend_from_slice(&[0x21, 0x00]); // local.set 0 - drop ptr from stack
     for (i, b) in json.iter().enumerate() {
         code.extend_from_slice(&[0x20, 0x00]); // local.get 0 (ptr)
         push_sleb(&mut code, i as i32);
@@ -141,7 +141,7 @@ fn body_accept() -> Vec<u8> {
     code
 }
 
-/// pre_posting body: reject with a reason — writes `{"result":"reject",
+/// pre_posting body: reject with a reason - writes `{"result":"reject",
 /// "reject_reason":"NO"}` and returns the pointer.
 fn body_reject() -> Vec<u8> {
     let json: &[u8] = br#"{"result":"reject","reject_reason":"NO"}"#;
@@ -208,7 +208,7 @@ fn body_infinite_loop() -> Vec<u8> {
 
 /// A trivial valid WASM module (empty, no imports/exports) for cache tests.
 fn mk_module(rt: &WasmRuntime) -> wasmtime::Module {
-    // (module) — the smallest valid binary.
+    // (module) - the smallest valid binary.
     let bytes: &[u8] = &[0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
     wasmtime::Module::from_binary(&rt.engine, bytes).unwrap()
 }
@@ -305,7 +305,7 @@ async fn execute_fuel_exhaustion() {
 
 #[tokio::test]
 async fn execute_timeout() {
-    // 1ms timeout with generous fuel — the epoch deadline must fire.
+    // 1ms timeout with generous fuel - the epoch deadline must fire.
     let rt = WasmRuntime::new(100_000_000, 16 * 1024 * 1024, 50, 10).unwrap();
     let bytes = build_module_with_locals(&[("env", "malloc")], &body_infinite_loop());
     let cached = rt
@@ -439,7 +439,7 @@ async fn execute_proxy_back_mock_server() {
     let resp = rt.execute(&cached, &req).await.unwrap();
     let served = server.await.unwrap();
     // The proxy-back must have hit /v1/internal/values/[ with the bearer
-    // token. (args.0 = "[]" — the module passes the raw args string.)
+    // token. (args.0 = "[]" - the module passes the raw args string.)
     assert!(
         served.contains("GET /v1/internal/values/health"),
         "served: {served}"
@@ -449,7 +449,7 @@ async fn execute_proxy_back_mock_server() {
         served_lc.contains("authorization: bearer test-token"),
         "served: {served}"
     );
-    // The host fn returned the pointer to `{"value": 42}` — the hook
+    // The host fn returned the pointer to `{"value": 42}` - the hook
     // returns it unchanged, so the response parses to that object.
     assert_eq!(resp.result, "accept"); // no "result" key → default accept
     assert_eq!(resp.custom_data, serde_json::Value::Null);
@@ -458,7 +458,7 @@ async fn execute_proxy_back_mock_server() {
 #[tokio::test]
 async fn validate_rejects_wasi() {
     let rt = mk_runtime();
-    // A module importing from wasi_snapshot_preview1 — hand-built.
+    // A module importing from wasi_snapshot_preview1 - hand-built.
     let mut out = wasm_header();
     let mut types: Vec<u8> = leb(1);
     types.extend_from_slice(&[0x60, 0x00, 0x00]); // ()->()
@@ -622,12 +622,12 @@ mod db {
     const SERVICE_DSN: &str = "postgres://sentin8_func_service@localhost:5432/sentin8";
 
     /// Connect as the func service role; None when PostgreSQL is unreachable
-    /// (runtime-skip — one log line, no failure).
+    /// (runtime-skip - one log line, no failure).
     async fn service_pool() -> Option<sqlx::PgPool> {
         match sqlx::postgres::PgPool::connect(SERVICE_DSN).await {
             Ok(p) => Some(p),
             Err(e) => {
-                eprintln!("skip: func DB-backed tests — service role unreachable: {e}");
+                eprintln!("skip: func DB-backed tests - service role unreachable: {e}");
                 None
             }
         }
@@ -740,7 +740,7 @@ mod db {
             .await
             .expect("delete deprecated under service role + RLS");
 
-        // Cleanup (superuser path — the test role cannot drop what RLS hides).
+        // Cleanup (superuser path - the test role cannot drop what RLS hides).
         cleanup(&env).await;
     }
 
@@ -798,7 +798,7 @@ mod db {
         .expect("outbox insert under service role + RLS");
         tx.commit().await.unwrap();
 
-        // Local-outbox row is relay-visible for this env (DBX §6.7 — the
+        // Local-outbox row is relay-visible for this env (DBX §6.7 - the
         // bus inbox is written only by Bus's produce API, never directly).
         let mut tx = pool.begin().await.unwrap();
         sqlx::query("SELECT sentin8_set_tenant_context($1)")
@@ -818,7 +818,7 @@ mod db {
         cleanup(&env).await;
     }
 
-    /// FUNC-FG-1 — the feature gate reads `services` for `func` at the
+    /// FUNC-FG-1 - the feature gate reads `services` for `func` at the
     /// caller's env: no row → enabled (platform default); an explicit
     /// disabled row → the engine reports closed.
     #[tokio::test]
@@ -834,13 +834,13 @@ mod db {
             .expect("gate check with no row");
         assert!(enabled, "missing services row must default to enabled");
 
-        // Seed an explicit disabled row (superuser — seeding is a fixture op).
+        // Seed an explicit disabled row (superuser - seeding is a fixture op).
         let admin = sqlx::postgres::PgPool::connect(
             sentin8::config::Sentin8Config::superuser_database_url(),
         )
         .await
         .expect("superuser pool");
-        // services has an FK to environments — seed a minimal env.
+        // services has an FK to environments - seed a minimal env.
         let org = uuid::Uuid::new_v4();
         sqlx::query(
             r#"INSERT INTO sys.organizations (id, slug, display_name, domain)
@@ -908,7 +908,7 @@ mod db {
         let Ok(admin) =
             sqlx::PgPool::connect(sentin8::config::Sentin8Config::superuser_database_url()).await
         else {
-            eprintln!("cleanup: superuser unreachable — rows left for env {env}");
+            eprintln!("cleanup: superuser unreachable - rows left for env {env}");
             return;
         };
         let _ = admin
@@ -939,7 +939,7 @@ mod admin {
         }
     }
 
-    // The admin data endpoint requires target_env_id — enforced in the
+    // The admin data endpoint requires target_env_id - enforced in the
     // handler; a missing env returns 400. That path needs an AppState with
     // a live pool, so the assertion lives in the e2e layer; the unit-level
     // contract (no fallback to caller env) is enforced by the code path

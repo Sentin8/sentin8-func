@@ -1,4 +1,4 @@
-# Design Doc: Sentin8:Func — Standalone WASM Execution Service
+# Design Doc: Sentin8:Func - Standalone WASM Execution Service
 
 ## 1. Summary
 
@@ -14,11 +14,11 @@ be feature-gated per environment.
 
 - **User-defined logic without deployment.** Custom hooks, compliance
   rules, and tenant-authored functions are the one class of logic no
-  platform service owns — a WASM host executes them with hard
+  platform service owns - a WASM host executes them with hard
   resource bounds (no interpreter escape, no arbitrary syscalls).
 - **Event-triggered execution.** "Event first, API second": when a
   service needs a reaction no service owns, a trigger invokes a
-  module. The payload-completeness rule applies — the hook receives a
+  module. The payload-completeness rule applies - the hook receives a
   self-contained envelope.
 - **Determinism + safety.** The same module + input must produce the
   same result (idempotency keys dedupe replays), and a malicious or
@@ -59,37 +59,37 @@ graph TD
     end
 ```
 
-- **Upload** — the binary (base64 WASM), source language, exported
+- **Upload** - the binary (base64 WASM), source language, exported
   hooks, parameters, and optional hash; the Storage object (keyed by
   module id) is written BEFORE the metadata row, with a best-effort
   rollback on metadata failure.
-- **Execution** — the runtime instantiates the module, injects the
+- **Execution** - the runtime instantiates the module, injects the
   hook request (JSON over linear memory), charges fuel per instruction,
   and enforces the memory ceiling; timeouts abort deterministically.
-- **Feature gate** — `sys.services` (`service='func'`, per-env
+- **Feature gate** - `sys.services` (`service='func'`, per-env
   `enabled`); a missing row defaults to OPEN (platform default), an
   explicit disabled row closes the engine (409 on every mutating
-  endpoint). The gate query is schema-qualified (`sys.services`) —
+  endpoint). The gate query is schema-qualified (`sys.services`) -
   the func role's `search_path` is `func, public`, so unqualified
   names fail.
-- **Audit** — module lifecycle and executions emit through the local
+- **Audit** - module lifecycle and executions emit through the local
   outbox; hook names are validated against the known set at upload.
 
 ## 4. Key Traits and Data Structures
 
-- **`WasmRuntime`** — the wasmtime wrapper: engine config (fuel,
+- **`WasmRuntime`** - the wasmtime wrapper: engine config (fuel,
   memory ceiling, epoch deadline), module cache, and the
   host-function binder.
-- **`UploadRequest` / `ExecuteRequest` / `ExecuteResponse`** — the
+- **`UploadRequest` / `ExecuteRequest` / `ExecuteResponse`** - the
   module contract: binary + language + hooks + parameters; execution
   carries hook name + context + optional callback config; the
   response carries the hook result (and directives in hook-protocol
   mode).
-- **`ModuleRecord`** — the stored module: id, domain, product,
+- **`ModuleRecord`** - the stored module: id, domain, product,
   version label, status, storage key, hooks, parameters.
-- **Hook protocol** — request/response serde types (`HookRequest`,
+- **Hook protocol** - request/response serde types (`HookRequest`,
   `HookResponse` with `accept`/`reject` + `reject_reason` +
-  directives) — the contract tenant-authored functions implement.
+  directives) - the contract tenant-authored functions implement.
 
 ## 5. Rationale, Trade-offs, and Alternatives
 
@@ -102,7 +102,7 @@ graph TD
   cap would allow bursty memory allocation; both bounds together
   close the practical DoS window.
 - **No WASI preopened fs/socket.** Modules cannot touch the host
-  network or filesystem — data access is exclusively via declared
+  network or filesystem - data access is exclusively via declared
   host functions that proxy-back. The runtime is generic (no
   pre-registered service-specific hosts; the caller supplies the
   import → path map per execute).
@@ -120,7 +120,7 @@ graph TD
 - **Feature gate defaults OPEN.** A missing `sys.services` row means
   the platform default (enabled); an explicit row closes it. The
   gate must not fail closed on a fresh env simply because nobody
-  seeded a row — that would break the zero-config vertical enroll.
+  seeded a row - that would break the zero-config vertical enroll.
 - **Status-based deletion restriction.** Only draft/deprecated modules
   delete; an active module must be deprecated first (no traffic
   teardown while serving).
@@ -146,7 +146,7 @@ graph TD
     search_path is `func, public`).
   - Non-2xx callback results fail the execution (the host function's
     error propagates); failures retry with backoff and land in the
-    DLQ — never silently dropped.
+    DLQ - never silently dropped.
   - Upload is atomic: object-before-row; metadata failure triggers
     best-effort object rollback.
   - Only the module owner (or admin) may upload/activate/delete;

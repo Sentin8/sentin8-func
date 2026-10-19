@@ -3,16 +3,16 @@
 // SPDX-FileCopyrightText: Copyright Contributors to the Sentin8:Func
 // SPDX-License-Identifier: Apache-2.0
 
-//! Annotated RFW alias wrappers (Dash 28.14 — the RFW renderer is
+//! Annotated RFW alias wrappers (Dash 28.14 - the RFW renderer is
 //! POST-only): one annotated handler = one path in the spec, so a second
 //! binding of `handlers::delete` needs its own annotated wrapper (same
-//! handler body, alias path — OAPEC design §2 rule 3).
+//! handler body, alias path - OAPEC design §2 rule 3).
 
 use crate::handlers::AppState;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 
-/// `POST /v1/modules/{id}/delete` — RFW alias of `DELETE /v1/modules/{id}`.
+/// `POST /v1/modules/{id}/delete` - RFW alias of `DELETE /v1/modules/{id}`.
 #[utoipa::path(
     post,
     path = "/v1/modules/{id}/delete",
@@ -20,7 +20,7 @@ use axum::http::{HeaderMap, StatusCode};
     responses(
         (status = 204, description = "Module deleted (same contract as DELETE /v1/modules/{id})"),
         (status = 404, description = "Unknown module"),
-        (status = 409, description = "Module is ACTIVE — deprecate first"),
+        (status = 409, description = "Module is ACTIVE - deprecate first"),
         (status = 401, description = "Caller authentication failed"),
         (status = 403, description = "Missing func:write scope"),
     ),
