@@ -912,7 +912,7 @@ async fn execute_dedupe_store(
     get,
     path = "/v1/health",
     responses(
-        (status = 200, description = "Liveness (version, build, runtime, cache size)", body = serde_json::Value),
+        (status = 200, description = "Liveness (version, build, runtime, cache size)", body = sentin8::middleware::health::LiveHealth),
     ),
     security(),
     tag = "meta",
