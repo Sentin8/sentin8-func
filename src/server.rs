@@ -147,7 +147,10 @@ pub fn routes(
             get(handlers::get).delete(handlers::delete),
         )
         // POST alias for RFW row_action_post (renderer only supports POST)
-        .route("/v1/modules/{id}/delete", post(crate::rfw_aliases::module_delete))
+        .route(
+            "/v1/modules/{id}/delete",
+            post(crate::rfw_aliases::module_delete),
+        )
         .route("/v1/modules/{id}/wasm", get(handlers::get_wasm))
         .route("/v1/modules/{id}/validate", post(handlers::validate))
         .route("/v1/modules/{id}/activate", post(handlers::activate))

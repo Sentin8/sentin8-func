@@ -60,4 +60,5 @@ use crate::store;
         (name = "policy", description = "Shield policy administration (shared surface)"),
         (name = "func", description = "Sentin8:Func admin API - WASM module management + execution"),
     ),
-)]pub struct FuncOpenApi;
+)]
+pub struct FuncOpenApi;
