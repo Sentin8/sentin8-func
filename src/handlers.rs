@@ -48,7 +48,7 @@ pub struct AppState {
     /// for cert-presenting callers (auth DESIGN §4.3f; group DESIGN.md
     /// §3.1).
     pub workload_registry: sentin8::auth::workload_registry::WorkloadMap,
-    /// Shield engine ( - ): additional gate after scope.
+    /// Shield engine : additional gate after scope.
     /// The policy.
     pub policy: Arc<crate::policy::Engine>,
     /// Shared Sentin8:Policy admin surface ( - one
