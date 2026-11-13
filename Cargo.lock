@@ -4497,7 +4497,7 @@ dependencies = [
 
 [[package]]
 name = "sentin8-func"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -4520,7 +4520,7 @@ dependencies = [
 
 [[package]]
 name = "sentin8-func-client"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "reqwest 0.12.28",
  "sentin8-middleware 0.1.0 (git+https://github.com/Sentin8/sentin8-sdk?tag=sdk-v0.6.25)",
@@ -4535,7 +4535,7 @@ dependencies = [
 
 [[package]]
 name = "sentin8-func-sdk"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "sentin8-func-client",
 ]
