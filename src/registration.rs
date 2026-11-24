@@ -139,6 +139,7 @@ pub fn print(section: Option<String>) -> anyhow::Result<()> {
         service_type: "sentin8:func",
         subdomain: "func",
         health_path: "/v1/health",
+        exposure: "",
         admin_scopes: &[
             // Granular vocabulary: handlers gate
             // mutations on `sentin8:func:write` and execution on `sentin8:func:execute`.
