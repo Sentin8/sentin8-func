@@ -8,7 +8,8 @@
       "telemetry_property": {
         "slug": "func",
         "name": "Sentin8:Func Platform Telemetry"
-      }
+      },
+      "exposure": "internal"
     }
   ]
 }
