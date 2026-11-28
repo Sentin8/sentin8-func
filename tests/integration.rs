@@ -430,9 +430,12 @@ async fn execute_proxy_back_mock_server() {
             base_url: format!("http://{addr}"),
             auth_token: "test-token".into(),
             internal_path: "/v1/internal".into(),
-            host_functions: [("svc_get_value".to_string(), "/values/health".to_string())]
-                .into_iter()
-                .collect(),
+            host_functions: [(
+                "svc_get_value".to_string(),
+                sentin8_func_server::runtime::HostFunctionTarget::Path("/values/health".to_string()),
+            )]
+            .into_iter()
+            .collect(),
         }),
         idempotency_key: None,
     };
@@ -496,9 +499,12 @@ async fn validate_rejects_missing_import_coverage() {
         .unwrap_err();
     assert!(err.contains("svc_get_value"), "unexpected error: {err}");
     // With the map covering it, validation passes.
-    let map = [("svc_get_value".to_string(), "/values/health".to_string())]
-        .into_iter()
-        .collect();
+    let map = [(
+        "svc_get_value".to_string(),
+        sentin8_func_server::runtime::HostFunctionTarget::Path("/values/health".to_string()),
+    )]
+    .into_iter()
+    .collect();
     assert!(rt
         .validate(&bytes, &["pre_posting".into()], Some(&map))
         .is_ok());

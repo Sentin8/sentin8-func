@@ -104,6 +104,9 @@ const M2M_GRANTS: &[sentin8::registration::M2mGrant] = &[
             "sentin8:bus:produce",
             "sentin8:storage:env:read",
             "sentin8:storage:env:write",
+            // `ai_infer` (func DESIGN.md §2): inference-only, narrower than
+            // `chat:write` - the module's AI authority is Func's own.
+            "sentin8:ai:infer:write",
         ],
     },
     sentin8::registration::M2mGrant {

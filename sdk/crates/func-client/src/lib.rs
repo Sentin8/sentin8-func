@@ -258,18 +258,44 @@ pub struct UploadRequest {
 }
 
 /// Proxy-back configuration: how Func-hosted functions reach the owning
-/// service's internal API.
+/// services (func DESIGN.md §2 "Host-function target contract").
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CallbackConfig {
-    /// Base URL of the owning service.
+    /// Base URL of the default owning service (the shorthand target).
     pub base_url: String,
     /// Bearer token used for proxy-back calls.
     pub auth_token: String,
-    /// Internal path to POST for host function calls.
+    /// Internal path the shorthand target prefixes.
     pub internal_path: String,
-    /// Import name → proxy-back path mapping.
+    /// Import name → target. A bare string keeps the shorthand
+    /// (`{base_url}{internal_path}{path}`, GET); an explicit
+    /// [`HostFunctionTarget`] names any host and method, which is the
+    /// allowlist a module cannot reach outside of.
     #[serde(default)]
-    pub host_functions: HashMap<String, String>,
+    pub host_functions: HashMap<String, HostFunctionTarget>,
+}
+
+/// One host-function destination. `Deserialize` accepts either the bare
+/// path string (legacy shorthand) or the explicit object form.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum HostFunctionTarget {
+    /// Shorthand: a path appended to the default base/internal path, GET.
+    Path(String),
+    /// Explicit: any owner, any method.
+    Explicit {
+        /// Full base URL of the target (e.g. `https://ai.ops.sys.example`).
+        url: String,
+        /// Path template with `{args.N}` placeholders.
+        path: String,
+        /// HTTP method (`GET` when omitted).
+        #[serde(default = "default_get")]
+        method: String,
+    },
+}
+
+fn default_get() -> String {
+    "GET".into()
 }
 
 /// Request to execute a hook on a module.
@@ -282,6 +308,10 @@ pub struct ExecuteRequest {
     /// Proxy-back configuration, when the module imports host functions.
     #[serde(default)]
     pub callback_config: Option<CallbackConfig>,
+    /// Idempotency key: a replayed execution with the same key returns the
+    /// cached response instead of re-running the hook (func DESIGN.md §3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
 }
 
 #[cfg(test)]
@@ -353,6 +383,7 @@ mod tests {
             hook: "on_posting".into(),
             context: serde_json::json!({"posting_id": "p-1", "amount": "10.00"}),
             callback_config: None,
+            idempotency_key: Some("idem-1".into()),
         };
         c.execute("m-1", &req).await.unwrap();
         let raw = handle.await.unwrap();

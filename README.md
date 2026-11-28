@@ -7,12 +7,15 @@
 ## 1. Summary
 
 Sentin8:Func is the platform's serverless WASM execution service.
-Users-authored and service-authored modules (compiled to WebAssembly)
+User-authored and service-authored modules (compiled to WebAssembly)
 are uploaded, validated, activated, and executed per hook; execution is
-gas-limited, host functions proxy back to the owning service's
-internal API, and module results are deterministic and idempotent.
-Sentin8:Flow steps and event triggers invoke it; the WASM engine can
-be feature-gated per environment.
+gas-limited, host functions proxy back to the owning service's internal
+API, and module results are deterministic and idempotent. Modules can also
+perform **model inference** through the `ai_infer` host function - a
+stateless sandbox calling a model with its own workload identity, so every
+edge function can use an LLM without the calling service building a
+passthrough. Sentin8:Flow steps and agent tools invoke it; the WASM engine
+can be feature-gated per environment.
 
 ## 2. Motivation
 
@@ -28,6 +31,11 @@ be feature-gated per environment.
   same result (idempotency keys dedupe replays), and a malicious or
   buggy module cannot escape (linear memory only, fuel-based gas,
   no WASI filesystem/network).
+- **Every edge function can use a model.** The most common tenant-authored
+  logic is "look at this and decide/summarise/extract" - which needs a
+  model. One `ai_infer` host function serves every module with the module's
+  own certificate and a narrow inference scope; without it each service
+  would need its own passthrough endpoint.
 - **Lifecycle discipline.** Modules move draft → active → deprecated;
   a broken binary can never receive traffic without passing
   validation and an explicit activation.
@@ -47,8 +55,9 @@ graph TD
         G[POST /v1/modules/id/execute] --> H[WasmRuntime wasmtime]
         H --> I[Fuel/gas accounting + memory cap]
         I --> J{Module imports host functions?}
-        J -->|yes| K[hostFunctions map: import name → proxy-back path]
-        K --> L[POST owning-service internal API - cert-bound M2M]
+        J -->|yes| K[hostFunctions map: import name → target]
+        K --> L[POST/GET owning-service internal API]
+        K --> L2[ai_infer → Sentin8:AI /v1/chat<br/>cert-bound · sentin8:ai:infer:write]
         J -->|no| M[Result]
     end
     subgraph Gates
@@ -84,6 +93,15 @@ graph TD
 - **`WasmRuntime`** - the wasmtime wrapper: engine config (fuel,
   memory ceiling, epoch deadline), module cache, and the
   host-function binder.
+- **`CallbackConfig`** - the per-execution destination contract. A
+  `host_functions` entry is either the bare-string shorthand
+  (`{base_url}{internal_path}{path}`, GET) or an explicit
+  `{url, path, method}` target. Explicit targets are the allowlist - a
+  module cannot reach a host the execution request did not name.
+- **`ai_infer`** - the inference host builtin: `(req_ptr, req_len) ->
+  ptr` over a JSON request that may carry `conversation_id`. The call
+  carries Func's workload certificate, consumes fuel, and returns at most
+  1 MiB.
 - **`UploadRequest` / `ExecuteRequest` / `ExecuteResponse`** - the
   module contract: binary + language + hooks + parameters; execution
   carries hook name + context + optional callback config; the
@@ -111,9 +129,24 @@ graph TD
   pre-registered service-specific hosts; the caller supplies the
   import → path map per execute).
 - **Proxy-back for host functions.** The module's import names map to
-  the owning service's internal API; Func stays stateless regarding
-  domain data. Alternative (Func reads domain DBs) breaks the
-  persistence-plane rule.
+  a declared target (defaulting to the owning service's internal API);
+  Func stays stateless regarding domain data. Alternative (Func reads
+  domain DBs) breaks the persistence-plane rule.
+- **Per-import targets, not one fixed destination.** The original single
+  `base_url` meant a module could only ever reach the caller's own service.
+  Explicit `{url, path, method}` entries widen that without weakening the
+  allowlist - the import map is still the complete set of reachable hosts,
+  checked at validate and execute.
+- **`ai_infer` as a host builtin, not a passthrough endpoint.** The
+  alternative - each service exposing `/v1/internal/chat` for its modules -
+  multiplies into ~20 near-identical endpoints, each with its own scope
+  decision and failure posture. One builtin with Func's certificate and a
+  narrow `sentin8:ai:infer:write` grant is the single place to audit, rate
+  limit, and budget.
+- **`conversation_id` rather than module-side history.** The sandbox has no
+  durable state by design, so multi-turn behaviour must be delegated: AI
+  owns the transcript, the module passes the id. This keeps memory bounded
+  and makes the conversation auditable and deletable in one place.
 - **Two-phase promotion (validate → activate).** Validation dry-runs
   the module (compile + smoke-execute) without publishing; activation
   is the explicit promotion. A single-step upload would route traffic
@@ -151,6 +184,17 @@ graph TD
   - Non-2xx callback results fail the execution (the host function's
     error propagates); failures retry with backoff and land in the
     DLQ - never silently dropped.
+  - **`ai_infer` errors surface to the module, never trap the store.**
+    AI unavailable, budget exhausted, or an oversized response is a
+    module-visible error the module decides on. Func never retries an
+    inference behind the module's back - a hidden retry would spend
+    budget the module did not request.
+  - **A module never inherits the caller's AI authority.** `ai_infer` presents
+    Func's workload certificate with `sentin8:ai:infer:write`; a caller
+    bearer is never forwarded to AI, and a module importing `ai_infer`
+    without the grant fails closed.
+  - **No module holds state.** There is no per-module KV store; multi-turn
+    behaviour passes `conversation_id` to `ai_infer`.
   - Upload is atomic: object-before-row; metadata failure triggers
     best-effort object rollback.
   - Only the module owner (or admin) may upload/activate/delete;
@@ -177,6 +221,14 @@ graph TD
   metrics (family `func`).
 - Module signing signs module blobs at upload (publisher key stored as a
   secrets reference).
+- **Streaming inference inside a module** (`ai_infer_stream`) is deferred:
+  it needs a second host ABI (incremental write-back into module memory) and
+  no edge-function workload has asked for it. Buffered inference covers the
+  use case.
+- **Destination policy per module** (forbidding a module from reaching AI or
+  a specific owner beyond its import map) is a tenant governance feature; the
+  import allowlist already constrains reachability, so a policy layer would
+  be about attestation, not isolation.
 
 ---
 

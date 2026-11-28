@@ -113,15 +113,68 @@ impl ModuleCache {
 #[derive(Debug, Clone, Deserialize, Serialize, Default, ToSchema)]
 /// Configuration for callback.
 pub struct CallbackConfig {
-    /// The base URL.
+    /// The base URL (shorthand target).
     pub base_url: String,
     /// The auth token.
     pub auth_token: String,
-    /// The internal path.
+    /// The internal path (shorthand target prefix).
     pub internal_path: String,
     #[serde(default)]
-    /// The host functions.
-    pub host_functions: std::collections::HashMap<String, String>,
+    /// Import name → target. A bare string is the shorthand
+    /// (`{base_url}{internal_path}{path}`, GET); the object form names any
+    /// host and method and is the allowlist a module cannot escape.
+    pub host_functions: std::collections::HashMap<String, HostFunctionTarget>,
+}
+
+/// One host-function destination (func DESIGN.md §2).
+#[derive(Debug, Clone, Deserialize, Serialize, utoipa::ToSchema)]
+#[serde(untagged)]
+pub enum HostFunctionTarget {
+    /// Shorthand: path appended to the default base/internal path, GET.
+    Path(String),
+    /// Explicit: any owner, any method.
+    Explicit {
+        /// Full base URL of the target.
+        url: String,
+        /// Path template with `{args.N}` placeholders.
+        path: String,
+        /// HTTP method (`GET` when omitted).
+        #[serde(default = "default_get")]
+        method: String,
+    },
+}
+
+fn default_get() -> String {
+    "GET".into()
+}
+
+impl HostFunctionTarget {
+    /// Resolve to `(url, method)` for a set of call arguments. The shorthand
+    /// joins the callback's base/internal path; the explicit form uses its
+    /// own url verbatim.
+    fn resolve(
+        &self,
+        base_url: &str,
+        internal_path: &str,
+        args: &[serde_json::Value],
+    ) -> Result<(String, String), String> {
+        match self {
+            HostFunctionTarget::Path(p) => {
+                let resolved = substitute_args(p, args).map_err(|e| e.to_string())?;
+                Ok((
+                    format!("{base_url}{internal_path}{resolved}"),
+                    "GET".into(),
+                ))
+            }
+            HostFunctionTarget::Explicit { url, path, method } => {
+                let resolved = substitute_args(path, args).map_err(|e| e.to_string())?;
+                Ok((
+                    format!("{}{resolved}", url.trim_end_matches('/')),
+                    method.to_uppercase(),
+                ))
+            }
+        }
+    }
 }
 
 /// `POST /v1/modules/{id}/execute` request body.
@@ -182,6 +235,7 @@ const BUILTINS: &[&str] = &[
     "util_now",
     "util_date_add",
     "util_round",
+    "ai_infer",
 ];
 /// Import namespaces rejected outright (WASI never allowed).
 const WASI_MODULES: &[&str] = &["wasi_snapshot_preview1", "wasi", "wasi_unstable"];
@@ -242,7 +296,29 @@ pub struct WasmRuntime {
     pub timeout_ms: u64,
     /// The cache.
     pub cache: Arc<ModuleCache>,
+    /// Sentin8:AI base URL for the `ai_infer` host function. Empty when AI
+    /// is not configured - the builtin then returns an error the module sees
+    /// (func DESIGN.md §2).
+    pub ai_url: String,
+    /// Sentin8:AI workload certificate paths for `ai_infer`
+    /// (`sentin8:ai:infer:write`). `None` when the certificate is not ready.
+    pub ai_identity: Option<AiIdentity>,
     http: reqwest::Client,
+}
+
+/// The `ai_infer` outbound identity: a cert-presenting mTLS transport plus
+/// the AI base URL. A module never inherits the caller's AI authority
+/// (func DESIGN.md §5 "Outbound identity").
+#[derive(Debug, Clone)]
+pub struct AiIdentity {
+    /// Base URL of Sentin8:AI.
+    pub base_url: String,
+    /// CA / cert / key paths for the workload client certificate.
+    pub ca_cert_path: String,
+    /// Client certificate path.
+    pub cert_path: String,
+    /// Client private key path.
+    pub key_path: String,
 }
 
 impl WasmRuntime {
@@ -271,8 +347,23 @@ impl WasmRuntime {
             max_memory_bytes,
             timeout_ms,
             cache: Arc::new(ModuleCache::new(cache_max)),
+            // `ai_infer` is wired after construction (see `with_ai_identity`);
+            // a runtime without it returns a clear error to the module.
+            ai_url: String::new(),
+            ai_identity: None,
             http,
         })
+    }
+
+    /// Attach the `ai_infer` outbound identity (the AI base URL + workload
+    /// certificate paths). Called at boot once the certificate is ready;
+    /// absent, `ai_infer` fails closed with a module-visible error.
+    pub fn with_ai_identity(mut self, identity: Option<AiIdentity>) -> Self {
+        if let Some(id) = &identity {
+            self.ai_url = id.base_url.clone();
+        }
+        self.ai_identity = identity;
+        self
     }
 
     /// SHA-256 hash of a WASM binary, formatted `sha256:hex…`.
@@ -313,7 +404,7 @@ impl WasmRuntime {
         &self,
         bytes: &[u8],
         declared_hooks: &[String],
-        host_functions: Option<&std::collections::HashMap<String, String>>,
+        host_functions: Option<&std::collections::HashMap<String, HostFunctionTarget>>,
     ) -> Result<Vec<String>, String> {
         let module =
             Module::from_binary(&self.engine, bytes).map_err(|e| format!("wasm parse: {e}"))?;
@@ -368,6 +459,7 @@ impl WasmRuntime {
 
         let mut linker: Linker<HostState> = Linker::new(&self.engine);
         register_builtins_into(&mut linker);
+        register_ai_infer(&mut linker, self.ai_identity.clone());
         register_dynamic_imports(
             &mut linker,
             &module.module,
@@ -635,6 +727,105 @@ fn register_builtins_into(linker: &mut Linker<HostState>) {
         .expect("link util_round");
 }
 
+/// Register `ai_infer` as an ASYNC host function (the runtime executes hooks
+/// under `instantiate_async`, so a synchronous host call must never block the
+/// worker). Signature mirrors the dynamic imports: `(ptr, len) -> ptr`.
+fn register_ai_infer(linker: &mut Linker<HostState>, identity: Option<AiIdentity>) {
+    let ty = FuncType::new(
+        &linker.engine().clone(),
+        vec![ValType::I32, ValType::I32],
+        vec![ValType::I32],
+    );
+    let identity = std::sync::Arc::new(identity);
+    linker
+        .func_new_async(
+            BUILTIN_MODULE,
+            "ai_infer",
+            ty,
+            move |mut caller: Caller<'_, HostState>, params: &[Val], results: &mut [Val]| {
+                let identity = identity.clone();
+                Box::new(async move {
+                    if params.len() != 2 || results.is_empty() {
+                        anyhow::bail!("ai_infer: bad ABI");
+                    }
+                    let Some(identity) = identity.as_ref().clone() else {
+                        anyhow::bail!("ai_infer: no AI identity configured");
+                    };
+                    let req_ptr = val_i32(&params[0])?;
+                    let req_len = val_i32(&params[1])?;
+                    // Read the JSON request from module memory.
+                    let payload: serde_json::Value = {
+                        let Some(mem) = caller
+                            .get_export("memory")
+                            .and_then(|e| e.into_memory())
+                        else {
+                            anyhow::bail!("ai_infer: no module memory");
+                        };
+                        let data = mem.data(&caller);
+                        let start = req_ptr.max(0) as usize;
+                        let end = start + req_len.max(0) as usize;
+                        if start > data.len() || end > data.len() {
+                            anyhow::bail!("ai_infer: request out of bounds");
+                        }
+                        serde_json::from_slice(&data[start..end]).unwrap_or(serde_json::Value::Null)
+                    };
+
+                    // Cert-presenting call to Sentin8:AI. The module's AI
+                    // authority is FUNC's workload certificate, never the
+                    // caller's bearer (func DESIGN.md §5).
+                    let client =
+                        sentin8::middleware::mtls::build_mtls_client(
+                            &sentin8::middleware::mtls::MtlsConfig::new(
+                                &identity.ca_cert_path,
+                                &identity.cert_path,
+                                &identity.key_path,
+                            ),
+                        )
+                        .map_err(|e| anyhow::anyhow!("ai_infer transport: {e}"))?;
+                    let url = format!("{}/v1/chat", identity.base_url.trim_end_matches('/'));
+                    let resp = client
+                        .post(&url)
+                        .json(&payload)
+                        .timeout(std::time::Duration::from_secs(60))
+                        .send()
+                        .await;
+                    // Errors become a JSON body the module can read - the call
+                    // never traps the store (func DESIGN.md §6).
+                    let body = match resp {
+                        Ok(r) => {
+                            let status = r.status();
+                            let text = r.text().await.unwrap_or_default();
+                            if status.is_success() {
+                                text
+                            } else {
+                                serde_json::json!({
+                                    "error": format!("ai_infer HTTP {status}"),
+                                    "body": text.chars().take(200).collect::<String>(),
+                                })
+                                .to_string()
+                            }
+                        }
+                        Err(e) => serde_json::json!({ "error": format!("ai_infer request: {e}") }).to_string(),
+                    };
+                    let bytes = body.into_bytes();
+                    if bytes.len() > 1024 * 1024 {
+                        anyhow::bail!("ai_infer response exceeds 1 MiB cap");
+                    }
+                    let mem = caller
+                        .get_export("memory")
+                        .and_then(|e| e.into_memory())
+                        .ok_or_else(|| anyhow::anyhow!("ai_infer: no module memory for result"))?;
+                    let ptr = bump_malloc(bytes.len() as i32);
+                    mem.write(&mut caller, ptr as usize, &bytes)
+                        .map_err(|e| anyhow::anyhow!("ai_infer write result: {e}"))?;
+                    results[0] = Val::I32(ptr);
+                    Ok(())
+                })
+            },
+        )
+        .expect("link ai_infer");
+}
+
 /// Bump allocator over module linear memory: hands out sequential regions
 /// anchored 1 MiB into linear memory (module heap data lives below that in
 /// practice). Each allocation is 16-byte aligned. State is process-global -
@@ -711,7 +902,7 @@ fn register_dynamic_imports(
                 ));
             }
         };
-        let path_template = match cb.host_functions.get(&fn_name) {
+        let target = match cb.host_functions.get(&fn_name) {
             Some(p) => p.clone(),
             None => {
                 return Err(format!(
@@ -740,7 +931,7 @@ fn register_dynamic_imports(
                     let http = http.clone();
                     let base_url = base_url.clone();
                     let internal_path = internal_path.clone();
-                    let path_template = path_template.clone();
+                    let target = target.clone();
                     let auth_token = auth_token.clone();
                     let fn_name = fn_name_cloned.clone();
                     Box::new(async move {
@@ -765,11 +956,16 @@ fn register_dynamic_imports(
                             }
                             serde_json::from_slice(&data[start..end]).unwrap_or_default()
                         };
-                        let resolved = substitute_args(&path_template, &args)
+                        let (url, method) = target
+                            .resolve(&base_url, &internal_path, &args)
                             .map_err(|e| anyhow::anyhow!("{e}"))?;
-                        let url = format!("{base_url}{internal_path}{resolved}");
-                        let resp = http
-                            .get(&url)
+                        let req = match method.as_str() {
+                            "POST" => http.post(&url).json(&args.first().cloned().unwrap_or(serde_json::Value::Null)),
+                            "PUT" => http.put(&url).json(&args.first().cloned().unwrap_or(serde_json::Value::Null)),
+                            "DELETE" => http.delete(&url),
+                            _ => http.get(&url),
+                        };
+                        let resp = req
                             .bearer_auth(&auth_token)
                             .send()
                             .await
@@ -895,6 +1091,39 @@ mod tests {
         // (module) - the smallest valid binary.
         let bytes: &[u8] = &[0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
         Module::from_binary(&rt.engine, bytes).unwrap()
+    }
+
+    #[test]
+    fn host_function_target_resolves_shorthand_and_explicit() {
+        // Shorthand joins the callback base + internal path, GET.
+        let t = HostFunctionTarget::Path("/accounts/{args.0}/balance".into());
+        let (url, method) = t
+            .resolve("https://ledger.example", "/v1/internal", &[serde_json::json!("a1")])
+            .unwrap();
+        assert_eq!(url, "https://ledger.example/v1/internal/accounts/a1/balance");
+        assert_eq!(method, "GET");
+
+        // Explicit names its own host and method - the per-import allowlist.
+        let t = HostFunctionTarget::Explicit {
+            url: "https://ai.example/".into(),
+            path: "/v1/chat".into(),
+            method: "post".into(),
+        };
+        let (url, method) = t.resolve("https://ignored", "/ignored", &[]).unwrap();
+        assert_eq!(url, "https://ai.example/v1/chat");
+        assert_eq!(method, "POST");
+    }
+
+    #[test]
+    fn host_function_target_parses_both_wire_shapes() {
+        let shorthand: HostFunctionTarget =
+            serde_json::from_str(r#""/values/health""#).unwrap();
+        assert!(matches!(shorthand, HostFunctionTarget::Path(_)));
+        let explicit: HostFunctionTarget = serde_json::from_str(
+            r#"{"url":"https://ai.example","path":"/v1/chat","method":"POST"}"#,
+        )
+        .unwrap();
+        assert!(matches!(explicit, HostFunctionTarget::Explicit { .. }));
     }
 
     #[test]

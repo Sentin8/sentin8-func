@@ -7,16 +7,19 @@ user-authored and service-authored modules are uploaded to Storage,
 validated (imports/hooks), activated per (domain, product, environment),
 and executed per hook under hard resource bounds - fuel, memory limiter,
 epoch/wall-clock timeout, 1 MiB response caps - with host functions
-proxy-calling back to owning services for domain data.
+proxy-calling back to owning services for domain data **and to
+Sentin8:AI for model inference**.
 
 - **Owns** (schema `func`): `modules` (metadata + lifecycle +
   content-addressed Storage key), `outbox` (DBX producer), and
   `audit_journal`. Module binaries live in Sentin8:Storage
   (`func/{domain}/{id}.wasm`, content-addressed by sha256).
 - **Does NOT own**: the WASM source/toolchain (uploads are compiled
-  binaries), the hooks' business semantics (proxy-back to the owner), and
-  trigger registration (declared empty - execution is API-triggered
-  today, e.g. by Flow's `BasicStep`).
+  binaries), the hooks' business semantics (proxy-back to the owner),
+  conversation state (Sentin8:AI holds every transcript - a module
+  addresses a conversation by id), and trigger registration (declared
+  empty - execution is API-triggered, e.g. by Flow's `BasicStep` or
+directly by an agent tool of kind `func_module`).
 
 ```mermaid
 graph TD
@@ -35,27 +38,41 @@ graph TD
     end
     BLOB[("sentin8:storage<br/>func/{domain}/{id}.wasm")]
     OWNER["Owning service<br/>/v1/internal/* proxy-back"]
+    AI["sentin8:ai<br/>POST /v1/chat · /v1/conversations/{id}/turns"]
     BUS["sentin8:bus"]
     FLOW & ADM -- "Shield func:write|execute" --> API
-    API --> RT["runtime"]
+    API --> GATE
+    GATE --> RT
+    API -- "metadata CRUD" --> STORE
     RT -- "fetch binary" --> ST -- "GET object" --> BLOB
     RT -- "execute (fuel/memory/epoch)" --> WASM["Wasmtime"]
     WASM -- "host fns: log · util_now · util_date_add · util_round" --> RT
-    WASM -- "dynamic import" --> PB["proxy-back (2s timeout, 1MiB cap)"] --> OWNER
+    WASM -- "dynamic import (per-import target)" --> PB["proxy-back (2s timeout, 1 MiB cap)"] --> OWNER
+    WASM -- "ai_infer host fn<br/>cert-bound · sentin8:ai:infer:write" --> AI
     API -- "emit_event_tx" --> OB
     OB -- "relay" --> BUS
 ```
 
 Trust boundary: a module can never escape the sandbox - linear memory
 only, no WASI, imports restricted to the builtin namespace or
-declared host functions, all host calls go through explicit
-`CallbackConfig` URLs owned by the registering service.
+declared host-function targets, and every host call goes to an explicit
+target the execution request declared. The default is **one destination**
+(the registering service's internal API); additional destinations
+(Sentin8:AI, or another owner) must be named per import by the caller,
+which keeps the import-coverage check a genuine allowlist.
+
+The two inference paths available to a module are deliberately distinct:
+
+| Path | Identity | Shape |
+|---|---|---|
+| `ai_infer` builtin | the module's workload certificate + `sentin8:ai:infer:write` | first-class host function; may carry `conversation_id` for multi-turn |
+| `host_functions` entry pointing at `/v1/chat` | the caller's bearer in `callback_config` | generic proxy-back; the caller owns the scope decision |
 
 ## 2. Runtime Architecture
 
 | Module | Role |
 |---|---|
-| `runtime.rs` | Wasmtime engine: fresh `Store` per invocation, fuel accounting, `ResourceLimiter` (memory), epoch deadline + ticker, LRU module cache, host builtins (`malloc`, `free`, `log`, `util_now`, `util_date_add`, `util_round`), dynamic-import proxy-back, `substitute_args` templating. |
+| `runtime.rs` | Wasmtime engine: fresh `Store` per invocation, fuel accounting, `ResourceLimiter` (memory), epoch deadline + ticker, LRU module cache, host builtins (`malloc`, `free`, `log`, `util_now`, `util_date_add`, `util_round`, `ai_infer`), per-import proxy-back targets, `substitute_args` templating. |
 | `handlers.rs` | Upload (Storage `put_if_absent` before row), list/get/delete/activate/validate/execute, feature gate, event emission, health. |
 | `store.rs` | Module metadata CRUD - every op = explicit tx + `set_rls` on the same connection; duplicate checks + unique indexes. |
 | `admin_ui.rs` | RFW overview/versions pages + data endpoints (`target_env_id` required). |
@@ -127,6 +144,71 @@ sequenceDiagram
     Note over H: dynamic imports proxy-back:<br/>2s timeout, 1 MiB response cap, bearer from CallbackConfig
 ```
 
+**Host-function target contract (`CallbackConfig`):**
+
+A `host_functions` entry accepts two shapes. The bare-string shorthand
+keeps the original one-destination behaviour and needs no module changes:
+
+```jsonc
+{
+  "base_url": "https://ledger.ops.sys.{domain}",
+  "internal_path": "/v1/internal",
+  "auth_token": "<caller bearer>",      // or omitted on the cert path
+  "host_functions": {
+    // shorthand: {base_url}{internal_path}{path}, GET
+    "ledger_balance": "/accounts/{args.0}/balance",
+    // explicit target: any owner, any method
+    "ledger_post": { "url": "https://ledger.ops.sys.{domain}",
+                     "path": "/v1/internal/postings",
+                     "method": "POST" },
+    // AI inference through the generic path (caller owns the scope)
+    "ai_chat":    { "url": "https://ai.ops.sys.{domain}",
+                    "path": "/v1/chat", "method": "POST" }
+  }
+}
+```
+
+- Every explicit `url` is **allowed-list checked at validate time and
+execute time**; a module that imports a host function not declared in the
+map is rejected (the existing import-coverage rule, now per target).
+- `POST` carries the arguments JSON as the request body; `GET` keeps the
+`substitute_args` path templating. Response caps and the per-call timeout
+are unchanged (1 MiB, 2 s default per target).
+
+**`ai_infer` lifecycle (first-class LLM host function):**
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant M as module
+    participant F as Func runtime
+    participant AI as sentin8:ai
+    participant P as provider
+
+    M->>F: ai_infer(req_ptr, req_len)
+    F->>F: meter fuel for the host call
+    F->>AI: POST /v1/chat<br/>cert-bound (sentin8:ai:infer:write)
+    alt conversation_id present
+        AI->>AI: load history, run the turn, persist
+    else plain inference
+        AI->>AI: prompt/messages, budget gate, moderation
+    end
+    AI->>P: complete
+    P-->>AI: response
+    AI-->>F: InferenceResponse
+    F->>F: reject > 1 MiB, write to module memory
+    F-->>M: pointer to the JSON result
+```
+
+- The module is **stateless by design**: `conversation_id` gives it
+multi-turn behaviour without durable module state, which is the only
+shape the sandbox permits.
+- The env budget gate in AI still applies; a module cannot outspend its
+environment, and the model is chosen by the env route, never by the
+module.
+- The host call is metered: a runaway inference loop burns fuel like any
+other loop, and the epoch deadline still cancels it.
+
 ## 3. Data Model
 
 ```mermaid
@@ -164,9 +246,18 @@ erDiagram
   returns the existing row instead of storing duplicate content. RLS
   FORCE with 4 env policies; binary content lives in Storage
   (`sentin8_storage_object_key`).
+- `func.modules.parameters` is freeform metadata a tenant owns. When a
+  module is bound as an agent tool (`kind: func_module` in `ai.tools`),
+  that metadata is where the tool's `input_schema` is naturally
+described, so the module and its tool declaration stay in one place.
+- `func.execute_dedupe` (`UNIQUE (module_id, hook, idempotency_key)`)
+  makes a replayed tool invocation return the cached response - an agent
+  retry after a transient network failure cannot double-apply a module
+  side effect.
 - `func.outbox` / `func.audit_journal` - generated DBX tables; the shell
-  relay drains the outbox; the journal is best-effort (note: audit rows
-  are currently written with a hardcoded `action='policy.decision'`).
+  relay drains the outbox. `ai_infer` host calls are visible as ordinary
+  AI traces plus `func.execute` metrics, so an edge-function inference is
+  attributable from both sides.
 
 ```mermaid
 stateDiagram-v2
@@ -196,6 +287,11 @@ stateDiagram-v2
 | Shield admin API | mixed | policy-admin surface | shared bridge. |
 | `/openapi.json` | GET | shell | 8 paths. |
 
+No inference endpoint exists here: `ai_infer` is an **outbound** host call a
+module makes during `/v1/modules/{id}/execute`, authenticated with Func's
+own workload certificate against Sentin8:AI. Func therefore adds no
+model-facing route and holds no provider connection.
+
 Event flow (producer; family `func`):
 
 ```mermaid
@@ -219,13 +315,24 @@ hash}`), `:deleted` (`{module_id}`), `:activated` (`{module_id}`).
 - **Sandbox caps**: fuel (default 100M instructions, `fuel_used`
   returned), memory limiter (16 MiB default; table growth always
   allowed), epoch deadline + wall-clock timeout (default 5s), 1 MiB
-  response caps (module JSON + proxy-back bodies).
+  response caps (module JSON + proxy-back bodies + `ai_infer` results).
+  An `ai_infer` call consumes fuel like any other host call, so a module
+  that loops on inference is cancelled by fuel or the epoch deadline.
+- **Outbound identity**: two paths, never mixed. The default proxy-back
+  uses the bearer the caller supplied in `callback_config` (or the
+  certificate-presenting transport when the caller is a service).
+  `ai_infer` uses the Func workload's own Acme-issued certificate and the
+  `sentin8:ai:infer:write` grant - a module never inherits the caller's
+  AI authority, and a caller bearer is never forwarded to AI.
 - **Idempotency**: content-addressed Storage objects (same hash → same
   key, `put_if_absent`); Bus produce idempotency by outbox row id;
-  execute itself is not idempotent (no dedupe keys plumbed).
-- **Audit journaling**: lifecycle actions write journal rows
-  (best-effort; currently hardcoded action label); `audit_journal` for
-  the shared pusher.
+  `execute_dedupe` keyed `(module_id, hook, idempotency_key)` replays a
+  stored `ExecuteResponse` so an agent tool retry cannot double-apply a
+  side effect.
+- **Audit journaling**: lifecycle actions write journal rows (best-effort);
+  `audit_journal` for the shared pusher. An `ai_infer` call is traceable
+  from both sides: a `func.execute` metric with `duration_ms` +
+  `fuel_used`, and an `ai.traces` row for the inference it caused.
 - **Graceful drain / TLS posture**: shell-owned (PQ provider, pool cap,
   PG18 check, TLS serve); the epoch ticker dies with the process.
 
@@ -240,11 +347,19 @@ flowchart TD
     CW[cache warm-up] -->|per-module fail| CONT[warn + continue; on-demand compile covers]
     EX[execute] -->|trap| T500[500 fuel/timeout/trap error]
     PBX[proxy-back non-2xx or >1 MiB] --> T500[execution fails; error propagates]
+    AIX["ai_infer: AI unavailable / budget 429 / >1 MiB"] --> AH["host call returns an error\nto the module - the module decides"]
     REL[relay] -->|Bus down| RT2[row unrelayed; 2s backoff; 5s poll]
     POL[Shield boot load fails] --> NS[refuse to start]
     SSE[hot-reload stream down] --> RC[2s reconnect; cache retained]
     DEL[delete active] --> R404[404 - active modules undeletable]
 ```
+
+- **`ai_infer` failure is a module decision, not a platform crash.** The
+  host call surfaces an error (AI down, budget exhausted, oversized
+  response) and the module chooses: fall back to a template answer,
+  return a graceful degradation, or propagate. Func never retries an
+  inference behind the module's back - a hidden retry would spend budget
+  the module did not ask to spend.
 
 - **Object-before-row**: an orphaned Storage object is harmless (deleted
   best-effort); an orphaned metadata row pointing at a missing object is
@@ -292,7 +407,9 @@ graph LR
    `(i32,i32) -> i32` export.
 4. **Import coverage enforced**: non-builtin `env` imports must be
    declared in `callback_config.host_functions` (validate-time when the
-   map is present; execute-time error otherwise).
+   map is present; execute-time error otherwise). An explicit target's
+   `url` is part of that declaration, so a module cannot reach a host
+   the execution request did not name.
 5. **Object-before-row**: Storage put is idempotent and precedes the
    metadata row; orphans are cleaned best-effort.
 6. **Lifecycle integrity**: one active version per (domain, product,
@@ -301,39 +418,58 @@ graph LR
 7. **RLS discipline**: context on the same transaction; gate reads
    (`sys.services`) are schema-qualified because the role's search_path
    is `func, public`.
-8. **Bounded responses**: both module JSON and proxy-back responses are
-   brace-scanned with a 1 MiB ceiling before parse.
-9. No `unsafe` code; sandboxing is Wasmtime's (fuel + limiter + epochs);
-   host functions are the only bridge to platform data.
+8. **Bounded responses**: module JSON, proxy-back responses, and
+   `ai_infer` results are all brace-scanned with a 1 MiB ceiling before
+   parse.
+9. **No module holds state.** There is no per-module KV store; a module
+   that needs multi-turn behaviour passes `conversation_id` to
+   `ai_infer` (Sentin8:AI owns the transcript) rather than accumulating
+   history in sandbox memory across invocations.
+10. **No `unsafe` code**; sandboxing is Wasmtime's (fuel + limiter +
+    epochs); host functions are the only bridge to platform data, and the
+    inference bridge uses Func's own identity.
 
 ## 9. Testing Strategy
 
 ```mermaid
 graph TD
-    U["Runtime unit (hand-built WASM)<br/>accept/reject · fuel · timeout · exports ·<br/>imports + proxy-back · hash · LRU · arg templating"]
-    I["Integration (DB-gated)<br/>RLS CRUD + cross-env denial · duplicate 409 ·<br/>outbox event emission · feature gate"]
+    U["Runtime unit (hand-built WASM)<br/>accept/reject · fuel · timeout · exports ·<br/>imports + proxy-back · per-import targets ·<br/>ai_infer metering · hash · LRU · arg templating"]
+    I["Integration (DB-gated)<br/>RLS CRUD + cross-env denial · duplicate 409 ·<br/>execute_dedupe replay · outbox event emission · feature gate"]
     A["Admin UI contract<br/>known pages · target_env_id required"]
     U --> I --> A
-    E["E2E<br/>trigger → module → proxy-back (lifecycle)"]
+    E["E2E<br/>trigger → module → proxy-back (lifecycle)<br/>module → ai_infer → answer"]
     A --> E
 ```
 
 - Runtime tests hand-assemble WASM modules (accept/reject/proxy-back/
-  infinite-loop bodies) to pin fuel, timeout, export, import-coverage,
-  and proxy-back behavior end-to-end against a mock server.
+  ai_infer/infinite-loop bodies) to pin fuel, timeout, export,
+  import-coverage, per-import target resolution, and proxy-back behavior
+  end-to-end against a mock server.
+- The `ai_infer` suite asserts: the call carries Func's certificate (not a
+  caller bearer), a module importing `ai_infer` without the declared grant
+  fails closed, an oversized inference response is rejected at the 1 MiB
+  ceiling, and an AI error surfaces to the module rather than trapping the
+  store.
 - DB tests run as `sentin8_func_service` (RLS real) and self-skip.
 - **Deliberately NOT tested here**: Storage object lifecycle (storage
-  suite), Bus relay (bus suite), TLS (platform).
+  suite), Bus relay (bus suite), TLS (platform), model quality (AI
+  evaluations).
 
 ## 10. Open Questions
 
-- Execute gains idempotency key plumbing: `ExecuteRequest` accepts an optional
-  `idempotency_key` and a `(module_id, hook, idempotency_key)` dedupe table
-  (TTL window) returns the cached `ExecuteResponse` on replay.
 - Audit rows pass the real action through the audit emit (mechanical fix in
   the emit helper).
 - The directive contract is defined in the README as a versioned union (`kind`
   + payload).
+- **Per-import targets are a superset of the single-destination model**: an
+  env that wants to forbid a module from reaching AI (beyond the
+  `ai_infer` grant) needs a destination policy on the module row. That is a
+  governance question for the tenant, not a sandbox gap - the import map is
+  already an allowlist.
+- **Streaming inference inside a module** (`ai_infer_stream` yielding
+deltas) is deferred: it would require a second host ABI (incremental
+callback into module memory) and no edge-function workload has asked for
+it. Buffered inference covers the use case.
 
 ---
 

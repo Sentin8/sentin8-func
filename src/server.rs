@@ -17,12 +17,42 @@ pub async fn build_state(
     core: sentin8::shell::ServiceCore,
 ) -> anyhow::Result<crate::handlers::AppState> {
     let config = crate::config::FuncConfig::from_env();
-    let runtime = WasmRuntime::new(
+    let mut runtime = WasmRuntime::new(
         config.max_fuel,
         config.max_memory_bytes,
         config.timeout_ms,
         config.cache_max_modules,
     )?;
+
+    // `ai_infer` outbound identity (func DESIGN.md §2): the `sentin8-func`
+    // workload certificate carries `sentin8:ai:infer:write`. Boot-soft - a
+    // missing certificate leaves `ai_infer` failing closed with a
+    // module-visible error rather than blocking startup.
+    {
+        let ai_url = sentin8::config::Sentin8Config::from_env().sentin8_ai_url();
+        if !ai_url.is_empty() {
+            match sentin8::auth::m2m::ensure_workload_certificate(
+                &config.sentin8_auth_issuer,
+                "sentin8:func",
+                &sentin8::auth::m2m::platform_ca_path(),
+            )
+            .await
+            {
+                Ok(cert) => {
+                    runtime = runtime.with_ai_identity(Some(crate::runtime::AiIdentity {
+                        base_url: ai_url,
+                        ca_cert_path: cert.ca_cert_path,
+                        cert_path: cert.cert_path,
+                        key_path: cert.key_path,
+                    }));
+                }
+                Err(e) => tracing::warn!(
+                    error = %e,
+                    "func: ai_infer certificate not ready - edge-function inference unavailable until next boot"
+                ),
+            }
+        }
+    }
 
     // Storage client - CERT-PRESENTING (auth DESIGN §4.3f):
     // ensure the `func-storage` workload CERTIFICATE (load-or-mint from
